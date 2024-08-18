@@ -32,7 +32,7 @@ SECRET_KEY = 'django-insecure-2-=7=fg6&po!0266%95992wgu(ttorawr9%6-l_-)jsobju@ro
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ["*", "localhost", "espoltelbackdeployment-production.up.railway.app"]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
@@ -81,9 +81,11 @@ MIDDLEWARE = [
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "https://espoltel-frontend.vercel.app"
+    "https://espoltel-frontend.vercel.app",
+    "https://espoltelbackdeployment-production.up.railway.app"
 ]
 
+CSRF_TRUSTED_ORIGINS = ['https://espoltelbackdeployment-production.up.railway.app', 'http://localhost:3000', 'https://espoltel-frontend.vercel.app']
 ROOT_URLCONF = 'espoltel.urls'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
