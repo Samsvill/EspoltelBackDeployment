@@ -1,125 +1,44 @@
-from django.http import HttpResponse
-from django.shortcuts import render
+import os
+
+from django.conf import settings
+from django.http import FileResponse, Http404, HttpResponse
+from urllib.parse import unquote
+from django.views.decorators.csrf import csrf_exempt
+from django.urls import reverse
 
 
-def saludo():
-    """
-    Returns a HttpResponse with the message "Hola, mundo!"
-    """
-    return HttpResponse("Hola, mundo!")
-
-def numero(num):
-    """
-    Returns an HttpResponse with a message based on the value of the input number.
-
-    Args:
-        num (int): The input number.
-
-    Returns:
-        HttpResponse: An HttpResponse object with a message indicating 
-        whether the number is greater than or equal to 10.
-
-    """
-    if num >= 10:
-        return HttpResponse("Número: " + str(num))
+def download_file(request, path):
+    # Descodificar cualquier carácter URL-encoded
+    file_path = os.path.join(settings.MEDIA_ROOT, unquote(path))
+    
+    # Verificar si el archivo existe
+    if os.path.exists(file_path):
+        return FileResponse(open(file_path, 'rb'), as_attachment=True, filename=os.path.basename(file_path))
     else:
-        return HttpResponse("Número menor a 10")
+        raise Http404("File does not exist")
 
-def vista(request):
-    """
-    This function is a view that renders the 'vista.html' template.
+#enlistar todas las rutas de la api en la vista home
+def home(request):
+    response = HttpResponse(content_type="text/plain")
+    
+    urls = [
+        ('registro', reverse('registro')),
+        ('get_token', reverse('get_token')),
+        ('roles', reverse('roles')),
+        ('roles-delete', reverse('roles-delete', kwargs={'pk': 1})),  # Example pk
+        ('proyecto-list-create', reverse('proyecto-list-create')),
+        ('proyecto-detail', reverse('proyecto-detail', kwargs={'pk': 1})),  # Example pk
+        ('crear-budget-items', reverse('crear-budget-items', kwargs={'proyecto_id': 1})),  # Example proyecto_id
+        ('crear-solicitud', reverse('crear-solicitud', kwargs={'pk': 1})),  # Example pk
+        ('detalle-solicitud', reverse('detalle-solicitud', kwargs={'pk': 1})),  # Example pk
+        ('cotizaciones-solicitud', reverse('cotizaciones-solicitud', kwargs={'pk': 1})),  # Example pk
+        ('crear-formulario', reverse('crear-formulario', kwargs={'pk_s': 1})),  # Example pk_s
+        ('crear-detalle-factura', reverse('crear-detalle-factura', kwargs={'pk_s': 1})),  # Example pk_s
+        ('crear-items-solicitud', reverse('crear-items-solicitud', kwargs={'pk_s': 1})),  # Example pk_s
+        ('estado-solicitud', reverse('estado-solicitud', kwargs={'pk_p': 1, 'pk_s': 1, 'pk_e': 1}))  # Example pk_p, pk_s, pk_e
+    ]
+    
+    for name, url in urls:
+        response.write(f"Name: {name} -> URL: {url}\n")
 
-    Parameters:
-    - request: The HTTP request object.
-
-    Returns:
-    - The rendered 'vista.html' template.
-    """
-    return render(request,"vista.html",{})
-
-def dinamico(request, username):
-    """
-    This function renders the 'dinamico.html' template with the given username
-    and a list of categories.
-
-    Parameters:
-    - request: The HTTP request object.
-    - username: The username to be displayed in the template.
-
-    Returns:
-    - A rendered HTML response.
-    """
-
-    categories = ['num1', 'num2', 'num3', 'num4', 'num5', 'num6', 'num7', 'num8', 'num9', 'num10']
-
-    contexto = {'name': username,
-                'categorias': categories}  
-    return render(request,"dinamico.html",contexto)
-
-def estaticos(request):
-    """
-    This function is a view for rendering the 'estaticos.html' template.
-
-    Args:
-        request (HttpRequest): The HTTP request object.
-
-    Returns:
-        HttpResponse: The HTTP response object containing the rendered template.
-    """
-    return render(request,"estaticos.html",{})
-
-def herencia(request):
-    """
-    This function handles the request for the 'herencia' view.
-    It renders the 'herencia.html' template.
-
-    Args:
-        request: The HTTP request object.
-
-    Returns:
-        A rendered response with the 'herencia.html' template.
-    """
-    return render(request, "herencia.html", {})
-
-def hijo1(request):
-    """
-    This function renders the 'hijo1.html' template.
-
-    Args:
-        request: The HTTP request object.
-
-    Returns:
-        A rendered HTML response.
-    """
-    return render(request, "hijo1.html", {})
-
-
-def hijo2(request):
-    """
-    This function renders the 'hijo2.html' template.
-
-    Args:
-        request: The HTTP request object.
-
-    Returns:
-        A rendered response with the 'hijo2.html' template.
-    """
-    return render(request, "hijo2.html", {})
-
-def login(request):
-    """
-    This function handles the login functionality.
-
-    Parameters:
-    - request: The HTTP request object.
-
-    Returns:
-    - If the request method is POST, it returns the 'dinamico.html' template 
-    with the username passed as a context variable.
-    - If the request method is not POST, it returns the 'form.html' template.
-    """
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        return render(request,"dinamico.html",{'name': username})
-    else:
-        return render(request,"form.html",{})
+    return response
