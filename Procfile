@@ -1,1 +1,1 @@
-web: python manage.py collectstatic && gunicorn espoltel.wsgi
+web: python manage.py migrate && gunicorn espoltel.wsgi
