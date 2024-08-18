@@ -1,27 +1,19 @@
-from django.db.utils import OperationalError
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, status
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
+from rest_framework import generics
 from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 
-from .models import BudgetItem, Proyecto, Solicitud
-from .serializers import (BudgetItemSerializer, ProyectoSerializer,
-                          SolicitudSerializer)
+from user.models import UserProfile
+from .models import Proyecto, BudgetItem
+from .serializers import ProyectoSerializer, BudgetItemSerializer
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.shortcuts import get_object_or_404
 
-
-class ProyectoListCreateAPIView(APIView):
-    permission_classes = [AllowAny]
-
+class ProyectoListCreateByUserAPIView(APIView):
+    permission_classes = [IsAuthenticated]
     def get(self, request):
-        """
-        Retrieves all projects.
-
-        Returns:
-            Response: A response object containing the status, message, and data.
-        """
         try:
-            proyectos = Proyecto.objects.all()
+            proyectos = Proyecto.objects.filter(usuario_creacion=request.user)
             if proyectos.exists():
                 serializer = ProyectoSerializer(proyectos, many=True)
                 response_data = {
@@ -33,11 +25,11 @@ class ProyectoListCreateAPIView(APIView):
             else:
                 response_data = {
                     "status": "success",
-                    "message": "No hay proyectos creados",
+                    "message": "No hay proyectos creados por el usuario",
                     "data": []
                 }
                 return Response(response_data, status=status.HTTP_200_OK)
-        except OperationalError as e:
+        except Exception as e:
             response_data = {
                 "status": "error",
                 "message": "Fallo en la consulta",
@@ -46,20 +38,10 @@ class ProyectoListCreateAPIView(APIView):
             return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def post(self, request):
-        """
-        Handle POST requests to create a new project.
-
-        Args:
-            request (HttpRequest): The HTTP request object.
-
-        Returns:
-            Response: The HTTP response object.
-
-        Raises:
-            Exception: If an error occurs while creating the project.
-        """
         try:
-            serializer = ProyectoSerializer(data=request.data)
+            data = request.data.copy()
+            data['usuario_creacion'] = UserProfile.objects.get(user=request.user).id
+            serializer = ProyectoSerializer(data=data)
             if serializer.is_valid():
                 proyecto = serializer.save()
                 response_data = {
@@ -77,29 +59,210 @@ class ProyectoListCreateAPIView(APIView):
                     "errors": serializer.errors
                 }
                 return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
-        except OperationalError as e:
+        except Exception as e:
             response_data = {
                 "status": "error",
-                "message": "No se pudo crear el proyecto, error del servidor",
+                "message": "No se pudo crear el proyecto",
                 "error": str(e)
             }
             return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# GET de todos los proyectos existentes
+    def update(self, instance, validated_data):
+        budget_items_data = validated_data.pop('budget_items', None)
+        instance.nombre = validated_data.get('nombre', instance.nombre)
+        instance.project_budget = validated_data.get('project_budget', instance.project_budget)
+        instance.save()
 
+        if budget_items_data is not None:
+            for item_data in budget_items_data:
+                item_id = item_data.get('id')
+                if item_id:
+                    budget_item = BudgetItem.objects.get(id=item_id, proyecto=instance)
+                    budget_item.recurso = item_data.get('recurso', budget_item.recurso)
+                    budget_item.categoria = item_data.get('categoria', budget_item.categoria)
+                    budget_item.cantidad = item_data.get('cantidad', budget_item.cantidad)
+                    budget_item.valor = item_data.get('valor', budget_item.valor)
+                    budget_item.presupuesto = item_data.get('presupuesto', budget_item.presupuesto)
+                    budget_item.save()
+                else:
+                    BudgetItem.objects.create(proyecto=instance, **item_data)
 
-class ProyectoListAPIView(APIView):
-    permission_classes = [AllowAny]
+        return instance   
+        
+class BudgetItemCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    #get de los items de un proyecto
+    def get(self, request, proyecto_id):
+        try:
+            proyecto = Proyecto.objects.get(id=proyecto_id)
+            items = BudgetItem.objects.filter(proyecto=proyecto)
+            if items.exists():
+                serializer = BudgetItemSerializer(items, many=True)
+                response_data = {
+                    "status": "success",
+                    "message": "Items devueltos con éxito",
+                    "data": serializer.data
+                }
+                return Response(response_data, status=status.HTTP_200_OK)
+            else:
+                response_data = {
+                    "status": "success",
+                    "message": "No hay items creados",
+                    "data": []
+                }
+                return Response(response_data, status=status.HTTP_200_OK)
+        except Proyecto.DoesNotExist:
+            response_data = {
+                "status": "error",
+                "message": f"No se encontró el proyecto con id {proyecto_id}"
+            }
+            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            response_data = {
+                "status": "error",
+                "message": "Fallo en la consulta",
+                "error": str(e)
+            }
+            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    def post(self, request, proyecto_id):
+        try:
+            proyecto = Proyecto.objects.get(id=proyecto_id)
+        except Proyecto.DoesNotExist:
+            response_data = {
+                "status": "error",
+                "message": f"No se encontró el proyecto con id {proyecto_id}"
+            }
+            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
+        
+        try:
+            items_data = request.data.get('budget_items', [])
+            errors = []
+            for item_data in items_data:
+                item_data['proyecto'] = proyecto_id
+                serializer = BudgetItemSerializer(data=item_data)
+                if serializer.is_valid():
+                    serializer.save()
+                else:
+                    errors.append(serializer.errors)
+            
+            if errors:
+                response_data = {
+                    "status": "error",
+                    "message": "No se pudo crear uno o más items",
+                    "errors": errors
+                }
+                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                response_data = {
+                    "status": "success",
+                    "message": "Items creados exitosamente para el proyecto",
+                    "data": {
+                        "proyecto_id": proyecto_id
+                    }
+                }
+                return Response(response_data, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            response_data = {
+                "status": "error",
+                "message": "No se pudo crear los items",
+                "error": str(e)
+            }
+            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class ProyectoDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request, pk):
+        try:
+            proyecto = Proyecto.objects.get(id=pk)
+            serializer = ProyectoSerializer(proyecto)
+            response_data = {
+                "status": "success",
+                "message": "Proyecto devuelto con éxito",
+                "data": serializer.data
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Proyecto.DoesNotExist:
+            response_data = {
+                "status": "error",
+                "message": f"No se encontró el proyecto con id {pk}"
+            }
+            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            response_data = {
+                "status": "error",
+                "message": "Fallo en la consulta",
+                "error": str(e)
+            }
+            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    def get(self):
-        """
-        Retrieves all projects.
+    def put(self, request, pk):
+        try:
+            proyecto = Proyecto.objects.get(id=pk)
+            serializer = ProyectoSerializer(proyecto, data=request.data, partial=True)
+            if serializer.is_valid():
+                proyecto = serializer.save()
+                response_data = {
+                    "status": "success",
+                    "message": "Proyecto actualizado exitosamente",
+                    "data": {
+                        "id": proyecto.id
+                    }
+                }
+                return Response(response_data, status=status.HTTP_200_OK)
+            else:
+                response_data = {
+                    "status": "error",
+                    "message": "No se pudo actualizar el proyecto, error del serializer",
+                    "errors": serializer.errors
+                }
+                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+        except Proyecto.DoesNotExist:
+            response_data = {
+                "status": "error",
+                "message": f"No se encontró el proyecto con id {pk}"
+            }
+            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            response_data = {
+                "status": "error",
+                "message": "No se pudo actualizar el proyecto",
+                "error": str(e)
+            }
+            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        Returns:
-            A Response object with the serialized data of the projects.
-            If there are no projects, an empty list is returned.
-            If there is an error in the query, an error message is returned.
-        """
+    def delete(self, request, pk):
+        try:
+            proyecto = Proyecto.objects.get(id=pk)
+            proyecto.delete()
+            response_data = {
+                "status": "success",
+                "message": "Proyecto eliminado exitosamente"
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+        except Proyecto.DoesNotExist:
+            response_data = {
+                "status": "error",
+                "message": f"No se encontró el proyecto con id {pk}"
+            }
+            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            response_data = {
+                "status": "error",
+                "message": "No se pudo eliminar el proyecto",
+                "error": str(e)
+            }
+            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+#para un futuro detail del item de un proyecto, por ahora muestra todos
+class BudgetItemDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAuthenticated]
+    queryset = BudgetItem.objects.all()
+    serializer_class = BudgetItemSerializer
+
+class ProyectoGetAllAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
         try:
             proyectos = Proyecto.objects.all()
             if proyectos.exists():
@@ -117,247 +280,7 @@ class ProyectoListAPIView(APIView):
                     "data": []
                 }
                 return Response(response_data, status=status.HTTP_200_OK)
-        except OperationalError as e:
-            response_data = {
-                "status": "error",
-                "message": "Fallo en la consulta",
-                "error": str(e)
-            }
-            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class BudgetItemCreateAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, proyecto_id):
-        """
-        Handle the POST request to create budget items for a project.
-
-        Args:
-            request (HttpRequest): The HTTP request object.
-            proyecto_id (int): The ID of the project.
-
-        Returns:
-            Response: The HTTP response containing the result of the operation.
-        """
-        try:
-            Proyecto.objects.get(id=proyecto_id)
-        except Proyecto.DoesNotExist:
-            response_data = {
-                "status": "error",
-                "message": f"No se encontró el proyecto con id {proyecto_id}"
-            }
-            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            budget_items_data = request.data.get('budget_items', [])
-            errors = []
-            for item_data in budget_items_data:
-                item_data['proyecto'] = proyecto_id
-                serializer = BudgetItemSerializer(data=item_data)
-                if serializer.is_valid():
-                    serializer.save()
-                else:
-                    errors.append(serializer.errors)
-
-            if errors:
-                response_data = {
-                    "status": "error",
-                    "message": "No se pudo crear uno o más budget_items",
-                    "errors": errors
-                }
-                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                response_data = {
-                    "status": "success",
-                    "message": "Budget_items creados exitosamente para el proyecto",
-                    "data": {
-                        "proyecto_id": proyecto_id
-                    }
-                }
-                return Response(response_data, status=status.HTTP_201_CREATED)
-
-        except OperationalError as e:
-            response_data = {
-                "status": "error",
-                "message": "No se pudo crear los budget_items",
-                "error": str(e)
-            }
-            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class ProyectoDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Proyecto.objects.all()
-    serializer_class = ProyectoSerializer
-
-# para un futuro detail del item de un proyecto, por ahora muestra todos
-
-
-class BudgetItemDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [AllowAny]
-    queryset = BudgetItem.objects.all()
-    serializer_class = BudgetItemSerializer
-
-# crear una solicitud de un proyecto YA EXISTENTE
-
-
-class SolicitudCreateAPIView(APIView):
-    permission_classes = [AllowAny]
-    serializer_class = SolicitudSerializer
-
-    def post(self, request, proyecto_id):
-        """
-        Create a new solicitud for a proyecto.
-
-        Args:
-            request (HttpRequest): The HTTP request object.
-            proyecto_id (int): The ID of the proyecto.
-
-        Returns:
-            Response: The HTTP response containing the result of the operation.
-        """
-        try:
-            proyecto = Proyecto.objects.get(id=proyecto_id)
-        except Proyecto.DoesNotExist:
-            response_data = {
-                "status": "error",
-                "message": f"No se encontró el proyecto con id {proyecto_id}"
-            }
-            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            request.data['proyecto'] = proyecto.id
-            serializer = SolicitudSerializer(data=request.data)
-            if serializer.is_valid():
-                serializer.save()
-                response_data = {
-                    "status": "success",
-                    "message": "Solicitud creada exitosamente",
-                    "data": {
-                        "proyecto_id": proyecto_id,
-                        "solicitud_id": serializer.data['id'],
-                        "codigo": serializer.data['codigo']
-                    }
-                }
-                return Response(response_data, status=status.HTTP_201_CREATED)
-            else:
-                response_data = {
-                    "status": "error",
-                    "message": "No se pudo crear la solicitud, error del serializer",
-                    "errors": serializer.errors
-                }
-                return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
-        except OperationalError as e:
-            response_data = {
-                "status": "error",
-                "message": "No se pudo crear la solicitud",
-                "error": str(e)
-            }
-            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-# GET de todas las solicitudes de todos los proyectos
-
-
-class SolicitudListAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request):
-        """
-        Retrieves all the Solicitud objects and returns them in a response.
-
-        Returns:
-            A Response object with the status, message, and data fields.
-            - If there are Solicitud objects, the data field contains a serialized
-              representation of the objects.
-            - If there are no Solicitud objects, the data field is an empty list.
-            - If there is an error during the query, an error message is returned.
-        """
-        try:
-            solicitudes = Solicitud.objects.all()
-            if solicitudes.exists():
-                serializer = SolicitudSerializer(solicitudes, many=True)
-                response_data = {
-                    "status": "success",
-                    "message": "Solicitudes devueltas con éxito",
-                    "data": serializer.data
-                }
-                return Response(response_data, status=status.HTTP_200_OK)
-            else:
-                response_data = {
-                    "status": "success",
-                    "message": "No hay solicitudes creadas",
-                    "data": []
-                }
-                return Response(response_data, status=status.HTTP_200_OK)
-        except OperationalError as e:
-            response_data = {
-                "status": "error",
-                "message": "Fallo en la consulta",
-                "error": str(e)
-            }
-            return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-# GET de una solicitud con su id
-
-
-class SolicitudDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Solicitud.objects.all()
-    serializer_class = SolicitudSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request, *args, **kwargs):
-        solicitud = get_object_or_404(Solicitud, pk=kwargs.get('pk'))
-        serializer = SolicitudSerializer(solicitud)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-# GET de todas las solicitudes por proyecto
-
-
-class SolicitudByProyectoListAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def get(self, request, proyecto_id):
-        """
-        Retrieve all the solicitud objects associated with a proyecto.
-
-        Args:
-            request (HttpRequest): The HTTP request object.
-            proyecto_id (int): The ID of the proyecto.
-
-        Returns:
-            Response: The HTTP response containing the solicitud objects.
-
-        Raises:
-            Proyecto.DoesNotExist: If the proyecto with the given ID does not exist.
-            OperationalError: If there is a failure in the database query.
-        """
-        try:
-            proyecto = Proyecto.objects.get(id=proyecto_id)
-        except Proyecto.DoesNotExist:
-            response_data = {
-                "status": "error",
-                "message": f"No se encontró el proyecto con id {proyecto_id}"
-            }
-            return Response(response_data, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            solicitudes = Solicitud.objects.filter(proyecto=proyecto)
-            if solicitudes.exists():
-                serializer = SolicitudSerializer(solicitudes, many=True)
-                response_data = {
-                    "status": "success",
-                    "message": "Solicitudes devueltas con éxito",
-                    "data": serializer.data
-                }
-                return Response(response_data, status=status.HTTP_200_OK)
-            else:
-                response_data = {
-                    "status": "success",
-                    "message": "No hay solicitudes creadas para este proyecto",
-                    "data": []
-                }
-                return Response(response_data, status=status.HTTP_200_OK)
-        except OperationalError as e:
+        except Exception as e:
             response_data = {
                 "status": "error",
                 "message": "Fallo en la consulta",

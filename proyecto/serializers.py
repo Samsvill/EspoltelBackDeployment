@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Proyecto, BudgetItem, Solicitud
+from .models import Proyecto, BudgetItem
 
 class BudgetItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -19,30 +19,12 @@ class BudgetItemSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-class SolicitudSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Solicitud
-        fields = ['id', 'codigo', 'nombre', 'tema', 'tipo', 'estado', 'fecha_creacion', 'proyecto']
-        read_only_fields = ['id', 'fecha_creacion', 'codigo']
-
-    def create(self, validated_data):
-        return Solicitud.objects.create(**validated_data)
-
-    def update(self, instance, validated_data):
-        instance.nombre = validated_data.get('nombre', instance.nombre)
-        instance.tema = validated_data.get('tema', instance.tema)
-        instance.tipo = validated_data.get('tipo', instance.tipo)
-        instance.estado = validated_data.get('estado', instance.estado)
-        instance.proyecto = validated_data.get('proyecto', instance.proyecto)
-        instance.save()
-        return instance
-
 class ProyectoSerializer(serializers.ModelSerializer):
-    budget_items = BudgetItemSerializer(many=True)
+    budget_items = BudgetItemSerializer(many=True, required=False)
 
     class Meta:
         model = Proyecto
-        fields = ['id', 'nombre', 'fecha_creacion', 'project_budget', 'budget_items','user_profile']
+        fields = ['id', 'nombre', 'fecha_creacion', 'usuario_creacion', 'project_budget', 'budget_items']
         read_only_fields = ['id', 'fecha_creacion']
 
     def create(self, validated_data):
@@ -53,8 +35,23 @@ class ProyectoSerializer(serializers.ModelSerializer):
         return proyecto
 
     def update(self, instance, validated_data):
+        budget_items_data = validated_data.pop('budget_items', [])
         instance.nombre = validated_data.get('nombre', instance.nombre)
-        instance.presupuesto = validated_data.get('presupuesto', instance.presupuesto)
-
+        instance.project_budget = validated_data.get('project_budget', instance.project_budget)
         instance.save()
+
+        if budget_items_data is not None:
+            for item_data in budget_items_data:
+                item_id = item_data.get('id')
+                if item_id is None:
+                    BudgetItem.objects.create(proyecto=instance, **item_data)
+                else:
+                    item = BudgetItem.objects.get(id=item_id, proyecto=instance)
+                    item.recurso = item_data.get('recurso', item.recurso)
+                    item.categoria = item_data.get('categoria', item.categoria)
+                    item.cantidad = item_data.get('cantidad', item.cantidad)
+                    item.valor = item_data.get('valor', item.valor)
+                    item.presupuesto = item_data.get('presupuesto', item.presupuesto)
+                    item.save()
         return instance
+
