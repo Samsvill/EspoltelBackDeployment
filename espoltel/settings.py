@@ -72,7 +72,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = 'espoltel_backend.urls'
+ROOT_URLCONF = 'espoltel.urls'
 
 TEMPLATES = [
     {
@@ -90,7 +90,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'espoltel_backend.wsgi.application'
+WSGI_APPLICATION = 'espoltel.wsgi.application'
 
 
 # Database
