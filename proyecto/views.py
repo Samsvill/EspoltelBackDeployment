@@ -13,7 +13,7 @@ class ProyectoListCreateByUserAPIView(APIView):
     permission_classes = [IsAuthenticated]
     def get(self, request):
         try:
-            proyectos = Proyecto.objects.filter(usuario_creacion=request.user)
+            proyectos = Proyecto.objects.filter(usuario_creacion=UserProfile.objects.get(user=request.user).id)
             if proyectos.exists():
                 serializer = ProyectoSerializer(proyectos, many=True)
                 response_data = {
